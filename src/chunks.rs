@@ -136,7 +136,7 @@ impl Chunk for FormChunk {
         }
 
         let size = reader::read_i32_be(buf);
-        println!("form chunk bytes {}", size);
+        //println!("form chunk bytes {}", size);
         let mut form_type = [0; 4];
         buf.read_exact(&mut form_type).unwrap();
 

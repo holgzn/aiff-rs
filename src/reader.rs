@@ -16,15 +16,17 @@ pub struct AiffReader<Source> {
     form_chunk: Option<FormChunk>,
     // pub id3v1_tags: Vec<chunks::ID3v1Chunk>, // should this be optional? or separate
     id3v2_tags: Vec<chunks::ID3v2Chunk>, // should this be optional? or separate
+    verbose: bool,
 }
 
 impl<Source: Read + Seek> AiffReader<Source> {
-    pub fn new(s: Source) -> AiffReader<Source> {
+    pub fn new(s: Source, verbose: bool) -> AiffReader<Source> {
         AiffReader {
             buf: BufReader::new(s),
             form_chunk: None,
             id3v2_tags: vec![],
             // id3v1_tags: vec![],
+            verbose,
         }
     }
 
@@ -39,52 +41,66 @@ impl<Source: Read + Seek> AiffReader<Source> {
             // buffer position is right past the id
             match &id {
                 ids::COMMON => {
-                    println!("Common chunk detected");
+                    if self.verbose {
+                        println!("Common chunk detected");
+                    }
                     let common =
                         chunks::CommonChunk::parse(&mut self.buf, id).unwrap();
-                    println!(
-                        "channels {} frames {} bit rate {} sample rate {}",
-                        common.num_channels,
-                        common.num_sample_frames,
-                        common.bit_rate,
-                        common.sample_rate
-                    );
+                    if self.verbose {
+                        println!(
+                            "channels {} frames {} bit rate {} sample rate {}",
+                            common.num_channels,
+                            common.num_sample_frames,
+                            common.bit_rate,
+                            common.sample_rate
+                        );
+                    }
                     form.set_common(common);
                 }
                 ids::SOUND => {
                     let sound =
                         chunks::SoundDataChunk::parse(&mut self.buf, id)
                             .unwrap();
-                    println!(
+                    if self.verbose {
+                        println!(
                         "SOUND chunk detected size {} offset {} block size {}",
                         sound.size, sound.offset, sound.block_size
                     );
+                    }
                     form.set_sound(sound);
                 }
                 ids::MARKER => {
                     let mark =
                         chunks::MarkerChunk::parse(&mut self.buf, id).unwrap();
-                    println!("MARKER chunk detected {:?}", mark);
+                    if self.verbose {
+                        println!("MARKER chunk detected {:?}", mark);
+                    }
                     form.add_marker_chunk(mark);
                 }
                 ids::INSTRUMENT => {
                     let inst =
                         chunks::InstrumentChunk::parse(&mut self.buf, id)
                             .unwrap();
-                    println!("INSTRUMENT chunk detected {:?}", inst);
+                    if self.verbose {
+                        println!("INSTRUMENT chunk detected {:?}", inst);
+                    }
                     form.set_instrument(inst);
                 }
                 ids::MIDI => {
                     let midi = chunks::MIDIDataChunk::parse(&mut self.buf, id)
                         .unwrap();
-                    println!("MIDI chunk detected {:?}", midi);
+                    if self.verbose {
+                        println!("MIDI chunk detected {:?}", midi);
+                    }
                     form.add_midi_chunk(midi);
                 }
                 ids::RECORDING => {
                     let rec =
                         chunks::AudioRecordingChunk::parse(&mut self.buf, id)
                             .unwrap();
-                    println!("RECORDING chunk detected {:?}", rec);
+                    if self.verbose {
+                        println!("RECORDING chunk detected {:?}", rec);
+                    }
                     form.set_recording(rec);
                 }
                 ids::APPLICATION => {
@@ -93,19 +109,25 @@ impl<Source: Read + Seek> AiffReader<Source> {
                         id,
                     )
                     .unwrap();
-                    println!("APPLICATION chunk detected {:?}", app);
+                    if self.verbose {
+                        println!("APPLICATION chunk detected {:?}", app);
+                    }
                     form.add_app_chunk(app);
                 }
                 ids::COMMENTS => {
                     let comm = chunks::CommentsChunk::parse(&mut self.buf, id)
                         .unwrap();
-                    println!("COMMENT chunk detected {:?}", comm);
+                    if self.verbose {
+                        println!("COMMENT chunk detected {:?}", comm);
+                    }
                     form.set_comments(comm);
                 }
                 ids::NAME | ids::AUTHOR | ids::COPYRIGHT | ids::ANNOTATION => {
                     let text =
                         chunks::TextChunk::parse(&mut self.buf, id).unwrap();
-                    println!("TEXT chunk detected: {}", text.text);
+                    if self.verbose {
+                        println!("TEXT chunk detected: {}", text.text);
+                    }
                     form.add_text_chunk(text);
                 }
                 ids::FVER => {
@@ -135,23 +157,36 @@ impl<Source: Read + Seek> AiffReader<Source> {
                         }
                     }
                 }
-                [84, 65, 71, _] => println!("v1 id3"), // "TAG_"
-                [_, 84, 65, 71] => println!("v1 id3"), // "_TAG"
+                [84, 65, 71, _] => {
+                    if self.verbose {
+                        println!("v1 id3")
+                    }
+                } // "TAG_"
+                [_, 84, 65, 71] => {
+                    if self.verbose {
+                        println!("v1 id3")
+                    }
+                } // "_TAG"
                 ids::CHAN | ids::BASC | ids::TRNS | ids::CATE => {
                     unimplemented!("apple stuff detected")
                 }
-                id => println!(
-                    "other chunk {:?} {:?}",
-                    id,
-                    String::from_utf8_lossy(id)
-                ),
-                // _ => (),
+                id => {
+                    if self.verbose {
+                        println!(
+                            "other chunk {:?} {:?}",
+                            id,
+                            String::from_utf8_lossy(id)
+                        )
+                    }
+                } // _ => (),
             };
         }
         self.form_chunk = Some(form);
 
         // FIXME handle remaining bytes
-        println!("buffer complete {} byte(s) left", self.buf.available());
+        if self.verbose {
+            println!("buffer complete {} byte(s) left", self.buf.available());
+        }
         // set position to end?
 
         Ok(())
@@ -180,7 +215,7 @@ impl<Source: Read + Seek> AiffReader<Source> {
         // maybe it should be stored as a u16?
         let sample_points =
             (c.num_sample_frames * c.num_channels as u32) as usize;
-        println!("sample points {:?}", sample_points);
+        // println!("sample points {:?}", sample_points);
 
         let mut samples = Vec::with_capacity(sample_points);
         let mut bytes_per_point = (c.bit_rate / 8) as usize;
@@ -189,7 +224,11 @@ impl<Source: Read + Seek> AiffReader<Source> {
         }
 
         for point in 0..sample_points {
-            samples.push(T::parse(&s.sound_data, point * bytes_per_point, c.bit_rate));
+            samples.push(T::parse(
+                &s.sound_data,
+                point * bytes_per_point,
+                c.bit_rate,
+            ));
         }
 
         samples
@@ -204,9 +243,10 @@ impl<Source: Read + Seek> AiffReader<Source> {
 // TODO move these into their own file - what's a good name?
 
 pub fn read_chunk_id(r: &mut impl Read) -> ids::ChunkID {
+    //TODO basically read_u8() as ChunkID ?
     let mut id = [0; 4];
     if let Err(e) = r.read_exact(&mut id) {
-        panic!("unable to read_u8 {:?}", e)
+        panic!("unable to chunk_id {:?}", e)
     }
     id
 }
@@ -222,7 +262,7 @@ pub fn read_u8(r: &mut impl Read) -> u8 {
 pub fn read_u16_be(r: &mut impl Read) -> u16 {
     let mut b = [0; 2];
     if let Err(e) = r.read_exact(&mut b) {
-        panic!("unable to read_u8 {:?}", e)
+        panic!("unable to read_u16_be {:?}", e)
     }
     u16::from_be_bytes(b)
 }
@@ -230,7 +270,7 @@ pub fn read_u16_be(r: &mut impl Read) -> u16 {
 pub fn read_u32_be(r: &mut impl Read) -> u32 {
     let mut b = [0; 4];
     if let Err(e) = r.read_exact(&mut b) {
-        panic!("unable to read_i32_be {:?}", e)
+        panic!("unable to read_u32_be {:?}", e)
     }
     u32::from_be_bytes(b)
 }
@@ -238,7 +278,7 @@ pub fn read_u32_be(r: &mut impl Read) -> u32 {
 pub fn read_i8_be(r: &mut impl Read) -> i8 {
     let mut b = [0; 1];
     if let Err(e) = r.read_exact(&mut b) {
-        panic!("unable to read_i32_be {:?}", e)
+        panic!("unable to read_i8_be {:?}", e)
     }
     i8::from_be_bytes(b)
 }
@@ -246,7 +286,7 @@ pub fn read_i8_be(r: &mut impl Read) -> i8 {
 pub fn read_i16_be(r: &mut impl Read) -> i16 {
     let mut b = [0; 2];
     if let Err(e) = r.read_exact(&mut b) {
-        panic!("unable to read_i32_be {:?}", e)
+        panic!("unable to read_i16_be {:?}", e)
     }
     i16::from_be_bytes(b)
 }
